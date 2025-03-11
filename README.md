@@ -166,7 +166,7 @@ Edit the .dtb file using tools like dtc (Device Tree Compiler) if custom hardwar
 For detailed instructions, consult the QEMU documentation or RISC-V resources.
 
 Additional Notes
-Path Adjustments: Double-check all paths (e.g., $RISCV) match your system’s setup. Incorrect paths are a common source of build errors.
+Path Adjustments: Double-check all paths (e.g., RISCV) match your system’s setup. Incorrect paths are a common source of build errors.
 Performance: The -j16 flag assumes a multi-core system. Use nproc to determine your core count and adjust accordingly (e.g., make -j$(nproc)).
 Troubleshooting: If you encounter issues, verify tool versions, review error logs, or consult the official documentation for Buildroot, Linux, riscv-pk, and QEMU.
 Next Steps: After building, you can run the emulator with QEMU. Example command (adjust paths as needed):
