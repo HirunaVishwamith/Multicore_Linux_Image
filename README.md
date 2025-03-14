@@ -1,86 +1,55 @@
-# RISC-V Emulator Setup and Build Guide
+# Multicore Supported Linux Image Creation for RISC‑V Processors
 
-Welcome to the **RISC-V Emulator Setup and Build Guide**! This repository offers a detailed, step-by-step walkthrough for setting up a RISC-V emulator using QEMU, configuring the necessary build environment, and compiling critical components such as Buildroot, the Linux Kernel, and the RISC-V Proxy Kernel (riscv-pk). Whether you're a developer exploring RISC-V architecture or an enthusiast looking to emulate a RISC-V system, this guide will help you get started. Follow the instructions carefully to ensure a smooth and successful build process.
+This repository provides a comprehensive, step‑by‑step guide to create a Linux image with multicore (SMP) support for RISC‑V processors. It details the process of setting up the build environment and compiling essential components such as Buildroot, a symmetric multi‑processing (SMP)‑enabled Linux kernel, and the RISC‑V Proxy Kernel (riscv‑pk) featuring the Berkeley Boot Loader (BBL). Whether you’re a developer exploring the RISC‑V architecture or an enthusiast seeking to emulate a many‑core environment, this documentation will help you get started quickly and efficiently.
 
 ---
 
 ## Overview
 
-The RISC-V architecture is an open-source instruction set architecture (ISA) gaining popularity for its flexibility and extensibility. This repository simplifies the process of setting up a RISC-V emulator by providing scripts, configurations, and instructions to build a fully functional emulated environment. By the end of this guide, you'll have:
+The RISC‑V architecture is an open‑source instruction set known for its flexibility and extensibility. This repository simplifies the process of creating a fully functional, emulated environment for many‑core RISC‑V systems by providing ready‑to‑use scripts, configurations, and detailed instructions. By following this guide, you will:
 
-- A minimal root filesystem generated with Buildroot.
-- A compiled Linux kernel with RISC-V support.
-- A RISC-V Proxy Kernel (riscv-pk) with the Berkeley Boot Loader (BBL).
-- The ability to run the emulator using QEMU.
+- Generate a minimal root filesystem using Buildroot.
+- Compile an SMP‑enabled Linux kernel with native multicore support.
+- Build the RISC‑V Proxy Kernel (riscv‑pk) integrated with the Berkeley Boot Loader (BBL).
+- Run the resulting image on a custom‑made many‑core RISC‑V processor or within an emulated environment.
 
-This guide assumes basic familiarity with Linux command-line operations and software compilation processes. Let’s dive in!
+Prerequisites: Basic familiarity with Linux command‑line operations and software compilation is assumed.
 
 ---
 
-## Prerequisites
+## Getting Started
 
-Before you begin, ensure your system meets the following requirements:
-
-- **Operating System**: A Linux-based OS (Ubuntu is recommended for compatibility).
-- **QEMU**: Installed for RISC-V emulation (e.g., `qemu-system-riscv64`).
-- **Git**: For cloning the repository and managing submodules.
-- **Buildroot**: Required to generate the root filesystem.
-- **Cross-Compiler**: A RISC-V cross-compiler (e.g., `riscv64-buildroot-linux-uclibc-gcc`).
-- **Dependencies**: Essential build tools like `make`, `gcc`, `g++`, `patch`, and others required by the kernel and Buildroot.
-
-To install these on Ubuntu, you can run:
-
-```
-sudo apt update
-sudo apt install git qemu-system build-essential bc libncurses-dev
-```
-Ensure all tools are up-to-date before proceeding.
-
-Setup Instructions
-Follow these steps to prepare your environment and fetch the necessary code.
-
-1. Clone the Repository and Update Submodules
-Start by cloning this repository to your local machine and updating its submodules:
+### 1. Clone the Repository and Update Submodules
+Begin by cloning the repository and synchronizing its submodules, which include Buildroot, the Linux kernel, and riscv‑pk:
 
 ```
 git clone <repository_url>
-cd <repository_name>
+cd ./Multicore_Linux_Image
 ./submodule_update
 ```
-Replace <repository_url> with the actual URL of this repository (e.g., https://github.com/username/riscv-emulator-guide.git).
-Replace <repository_name> with the directory name created by the clone command.
-The ./submodule_update script ensures all dependent submodules (e.g., Buildroot, Linux, riscv-pk) are downloaded and synchronized.
-2. Set Up Environment Variables
-Configure your environment variables to point to the correct tools and paths. Add the following lines to your ~/.bashrc file:
+Replace <repository_url> with the actual URL of this repository (e.g., `git@github.com:HirunaVishwamith/Multicore_Linux_Image.git`). The `./submodule_update` script downloads and synchronizes all dependent submodules.
+### 2. Set Up Environment Variables
+Configure your environment by adding the necessary variables to your `~/.bashrc` file:
 
 ```
-export RISCV=/path/to/buildroot/output/host
+export RISCV=/home/vithurson/buildroot-2022.02.3/output/host
 export PATH=$PATH:$RISCV/bin
-export ARCH=riscv
-export CROSS_COMPILE=riscv64-buildroot-linux-uclibc-
-```
-Important: Replace /path/to/buildroot/output/host with the actual path to your Buildroot output directory (e.g., /home/user/buildroot-2022.02.3/output/host). This path depends on where you install Buildroot and run its build process.
-These variables set the RISC-V toolchain path, architecture, and cross-compiler prefix.
-Apply the changes to your current session:
+export ARCH=riscv export CROSS_COMPILE=riscv64-buildroot-linux-uclibc-
 
+generic
 ```
-source ~/.bashrc
-```
-Verify the setup by running echo $RISCV and which riscv64-buildroot-linux-uclibc-gcc. You should see valid paths.
-
-3. Apply Configurations and Patches
-This repository includes a script to apply predefined configurations and patches to the components:
+After updating your `~/.bashrc`, run the configuration script and source the file:
 
 ```
 ./apply_configs_and_patches
+source ~/.bashrc
 ```
-This script automates the process of configuring Buildroot, the Linux kernel, and riscv-pk with settings optimized for RISC-V emulation. Ensure it executes without errors before proceeding.
+This step automatically configures Buildroot, the Linux kernel, and riscv‑pk for RISC‑V emulation. Make sure that the script completes without errors before proceeding.
 
-Building Components
-Now, compile the individual components required for the emulator.
+## Building Components
 
-Buildroot
-Buildroot generates a minimal root filesystem tailored for RISC-V:
+## Buildroot
+Buildroot generates a minimal root filesystem tailored for RISC‑V:
 
 ```
 cd buildroot
@@ -90,44 +59,27 @@ Run this from the buildroot directory within the repository.
 The -j16 flag parallelizes the build across 16 threads. Adjust this number based on your CPU cores (e.g., -j4 for 4 cores) to optimize build time.
 The output will be in the output/ directory, including the host tools and root filesystem.
 
-Linux Kernel
+## Linux Kernel
 Compile the Linux kernel with RISC-V support:
 
 ```
 cd linux
 make -j16
 ```
-Execute this from the linux directory.
-This builds a kernel image (arch/riscv/boot/Image) compatible with RISC-V.
-RISC-V Proxy Kernel (riscv-pk)
-The RISC-V Proxy Kernel (riscv-pk) includes the Berkeley Boot Loader (BBL), which wraps the Linux kernel for execution:
 
-```
-cd riscv-pk
-mkdir build
-cd build
-make
-```
-Run these commands from the riscv-pk directory.
-The make command builds bbl, embedding the Linux kernel from ../linux/arch/riscv/boot/Image (assuming it’s already built).
-After completion, the final Linux image is located at riscv-pk/build/bbl.
-Configuring Linux Kernel for SMP
-To enable Symmetric Multi-Processing (SMP) for multi-core support in the Linux kernel, follow these steps:
-
-Navigate to the Linux Source Directory:
-```
-cd linux
-```
 Run Menuconfig:
 
 ```
 make menuconfig
 ```
-Enable SMP:
-Navigate to Platform Type in the menu.
-Enable Symmetric Multi-Processing (SMP).
-Save the configuration and exit. This updates the .config file in the linux directory.
-Integrate with Buildroot:
+In the menu, navigate to **Platform Type** and enable **Symmetric Multi‑Processing (SMP)**. Save and exit to update the `.config` file.
+
+![smp_enabled](doc/2.png)
+
+
+
+## Integrate with Buildroot:
+
 Move to the Buildroot directory:
 
 ```
@@ -137,41 +89,55 @@ Open Buildroot’s menuconfig:
 ```
 make menuconfig
 ```
-Go to Kernel -> Linux Kernel.
-Select the option to use a custom kernel configuration file.
-Specify the path to the configuration file, such as ../linux/.config or a predefined file like ../../config_build_bbl (if provided in the repository).
-Save and exit.
-Rebuild the Kernel (if needed):
+Go to `Kernel -> Linux Kernel` and select the option to use a custom kernel configuration file. Provide the path to the Linux kernel configuration (e.g., `../linux/.config`). Save your changes. 
+
+![add_linux_kernal](doc/1.png)
+
+Rebuild the Kernel:
 
 ```
-cd ../linux
 make -j16
 ```
-This ensures the kernel supports SMP when used with the emulator.
+This builds a kernel image (arch/riscv/boot/Image) compatible with Multicore RISC-V suport.
 
-QEMU Default Configuration
-To configure the Linux kernel with a default setup optimized for QEMU’s virt machine:
+## RISC‑V Proxy Kernel (riscv‑pk)
+
+Execute this from the linux directory.
+
+The RISC-V Proxy Kernel (riscv-pk) includes the Berkeley Boot Loader (BBL), which wraps the Linux kernel for execution:
+
+```
+cd riscv-pk
+mkdir build
+cd build
+make
+```
+
+This will compile riscv‑pk and produce the BBL executable.
+
+## Generating the Multicore‑Supported Device Tree
+
+To create a device tree file tailored for a multicore Linux image, configure the Linux kernel with a default setup optimized for QEMU’s virt machine:
+
 
 ```
 cd linux
 make qemu_riscv64_virt_defconfig
 ```
-Run this in the linux directory.
-This command sets a predefined configuration suitable for running RISC-V Linux on QEMU. Rebuild the kernel (make -j16) if you apply this configuration after previous changes.
-Generating and Editing Device Tree
-The device tree describes the hardware configuration for the emulated RISC-V system. QEMU can generate a default device tree based on its virt machine, which you can modify as needed:
 
-Generate the device tree during QEMU execution (covered in a potential usage section, not detailed here).
-Edit the .dtb file using tools like dtc (Device Tree Compiler) if custom hardware changes are required.
-For detailed instructions, consult the QEMU documentation or RISC-V resources.
+Then integrate this `.cofig` with the buildroot and `make` it again. Then `make` the `build`
 
-Additional Notes
-Path Adjustments: Double-check all paths (e.g., RISCV) match your system’s setup. Incorrect paths are a common source of build errors.
-Performance: The -j16 flag assumes a multi-core system. Use nproc to determine your core count and adjust accordingly (e.g., make -j$(nproc)).
-Troubleshooting: If you encounter issues, verify tool versions, review error logs, or consult the official documentation for Buildroot, Linux, riscv-pk, and QEMU.
-Next Steps: After building, you can run the emulator with QEMU. Example command (adjust paths as needed):
+To generate the device tree file, run QEMU with the following command:
 
 ```
-qemu-system-riscv64 -nographic -machine virt -kernel riscv-pk/build/bbl -append "root=/dev/vda ro" -drive file=buildroot/output/images/rootfs.ext2,format=raw,id=hd0 -device virtio-blk-device,drive=hd0
+qemu-system-riscv64 -nographic -machine virt -kernel ../riscv-pk/build/bbl -append "root=/dev/vda ro" -drive file=../buildroot/output/images/rootfs.ext2,format=raw,id=hd0 -device virtio-blk-device,drive=hd0
 ```
-This README provides a foundation; expand it with usage instructions or advanced configurations as your project evolves.
+
+This command boots the multicore‑supported Linux image using the compiled BBL, allowing QEMU to generate the necessary device tree.
+
+## Conclusion
+
+By following these instructions, you will have successfully built a multicore‑supported Linux image for RISC‑V processors. This setup enables you to experiment with a fully functional, emulated many‑core RISC‑V environment or deploy the image on custom hardware. For further details or troubleshooting, consult the repository’s additional documentation and support channels.
+
+Happy building!
+
