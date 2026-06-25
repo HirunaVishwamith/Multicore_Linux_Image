@@ -1,0 +1,32 @@
+Poll-drain the uartlite TX ring so userspace console output works without a
+wired UART interrupt.
+
+chiron has no PLIC interrupt *delivery* in the golden model / RTL, so the
+IRQ-driven TX path stalls userspace output once the FIFO fills (the polled
+kernel-printk path keeps working, which is why early boot is visible but the
+shell banner stops mid-line). Drain the whole TX ring in start_tx instead.
+ulite_transmit() returns 0 once the FIFO is full or the ring is empty, so this
+is safe on real hardware too.
+
+Apply from the linux/ source tree:  patch -p1 < this_file
+
+--- a/drivers/tty/serial/uartlite.c
++++ b/drivers/tty/serial/uartlite.c
+@@ -266,7 +266,16 @@ static void ulite_stop_tx(struct uart_port *port)
+
+ static void ulite_start_tx(struct uart_port *port)
+ {
+-	ulite_transmit(port, uart_in32(ULITE_STATUS, port));
++	/*
++	 * Drain the whole TX ring here instead of sending a single byte and
++	 * waiting for the TX-empty IRQ. On platforms without a wired uartlite
++	 * interrupt (e.g. the chiron golden model / RTL, which has no PLIC
++	 * delivery) the IRQ never fires, so userspace console output would
++	 * otherwise stall after the first byte. ulite_transmit() returns 0 once
++	 * the FIFO is full or the ring is empty, so this is safe on real HW too.
++	 */
++	while (ulite_transmit(port, uart_in32(ULITE_STATUS, port)))
++		;
+ }
+
+ static void ulite_stop_rx(struct uart_port *port)

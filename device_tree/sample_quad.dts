@@ -10,7 +10,7 @@
         #address-cells = <1>;
         #size-cells = <0>;
         timebase-frequency = <6250000>;
-        
+
         CPU0: cpu@0 {
             phandle = <0x02>;
             device_type = "cpu";
@@ -29,11 +29,66 @@
             };
         };
 
+        CPU1: cpu@1 {
+            phandle = <0x07>;
+            device_type = "cpu";
+            reg = <1>;
+            status = "okay";
+            compatible = "riscv";
+            riscv,isa-extensions = "i\0m\0a\0ziccamoa\0zicsr\0zifencei";
+            riscv,isa-base = "rv64i";
+            riscv,isa = "rv64ima_ziccamoa_zicsr_zifencei";
+            clock-frequency = <40000000>;
+            CPU1_intc: interrupt-controller {
+                #interrupt-cells = <1>;
+                interrupt-controller;
+                compatible = "riscv,cpu-intc";
+                phandle = <0x4>;
+            };
+        };
+
+        CPU2: cpu@2 {
+            phandle = <0x08>;
+            device_type = "cpu";
+            reg = <2>;
+            status = "okay";
+            compatible = "riscv";
+            riscv,isa-extensions = "i\0m\0a\0ziccamoa\0zicsr\0zifencei";
+            riscv,isa-base = "rv64i";
+            riscv,isa = "rv64ima_ziccamoa_zicsr_zifencei";
+            clock-frequency = <40000000>;
+            CPU2_intc: interrupt-controller {
+                #interrupt-cells = <1>;
+                interrupt-controller;
+                compatible = "riscv,cpu-intc";
+                phandle = <0x5>;
+            };
+        };
+
+        CPU3: cpu@3 {
+            phandle = <0x09>;
+            device_type = "cpu";
+            reg = <3>;
+            status = "okay";
+            compatible = "riscv";
+            riscv,isa-extensions = "i\0m\0a\0ziccamoa\0zicsr\0zifencei";
+            riscv,isa-base = "rv64i";
+            riscv,isa = "rv64ima_ziccamoa_zicsr_zifencei";
+            clock-frequency = <40000000>;
+            CPU3_intc: interrupt-controller {
+                #interrupt-cells = <1>;
+                interrupt-controller;
+                compatible = "riscv,cpu-intc";
+                phandle = <0x6>;
+            };
+        };
+
         cpu-map {
             cluster0 {
-                core0 {
-                    cpu = <0x02>;
-                };
+                core0 { cpu = <0x02>; };
+                core1 { cpu = <0x07>; };
+                core2 { cpu = <0x08>; };
+                core3 { cpu = <0x09>; };
             };
         };
     };
@@ -50,7 +105,7 @@
         ranges;
         clint@2000000 {
             compatible = "riscv,clint0";
-            interrupts-extended = <0x1 7 0x1 3>;
+            interrupts-extended = <0x1 7 0x1 3 0x4 7 0x4 3 0x5 7 0x5 3 0x6 7 0x6 3>;
             reg = <0x0 0x2000000 0x0 0xc0000>;
         };
 
@@ -61,7 +116,7 @@
             interrupt-controller;
             reg = <0x0 0x0c000000 0x0 0x04000000>;
             riscv,ndev = <31>;
-            interrupts-extended = <0x1 11>;
+            interrupts-extended = <0x1 11 0x4 11 0x5 11 0x6 11>;
             phandle = <0x3>;
         };
 

@@ -135,6 +135,88 @@ qemu-system-riscv64 -nographic -machine virt -kernel ../riscv-pk/build/bbl -appe
 
 This command boots the multicore‑supported Linux image using the compiled BBL, allowing QEMU to generate the necessary device tree.
 
+---
+
+## Building images for the chiron processor (no‑MMU, RAM @ `0x80000000`)
+
+chiron is a **no‑MMU, machine‑mode** RISC‑V core: it has a `satp` CSR but performs **no address translation** (no page‑table walk / TLB in either the golden‑model emulator or the RTL). Therefore only a **nommu, M‑mode** kernel can run on it, and its DRAM lives at **`0x80000000`** (the golden model services a 144 MB window `[0x80000000, 0x89000000)`). The generic steps above target a machine with RAM at `0x10000000`; the steps below produce images that boot on chiron. Both the golden emulator and the RTL load a **flat binary at `0x80000000`** — so the deliverable is `bbl.bin` (bbl + nommu‑kernel payload + embedded dtb), `objcopy`‑ed to a raw binary.
+
+The kernel/buildroot/riscv‑pk configs in `configs/` already select `CONFIG_RISCV_M_MODE=y` / `# CONFIG_MMU is not set`. After `./apply_configs_and_patches`, apply these chiron‑specific changes.
+
+### 1. Relocate the kernel to `0x80000000`
+
+`CONFIG_PAGE_OFFSET` (the nommu RAM/link base) defaults to `0x10200000`. Point it at chiron's RAM by editing `linux/arch/riscv/Kconfig`:
+
+```
+config PAGE_OFFSET
+	hex
+	default 0x80200000 if 64BIT && !MMU   # was 0x10200000
+```
+
+Then `cd linux && make olddefconfig` and confirm `CONFIG_PAGE_OFFSET=0x80200000`.
+
+### 2. Device tree (`device_tree/sample.dts`, single‑core)
+
+- `memory@0x80000000` size must fit the emulator's window — use **128 MB**: `reg = <0x0 0x80000000 0x0 0x08000000>;`
+- Console must be the uartlite (an M‑mode kernel has no SBI, so `console=hvc0` is silent). Set:
+  ```
+  chosen { bootargs = "earlycon=uartlite,0x40600000 console=ttyUL0 root=/dev/ram rw rootfstype=ramfs"; };
+  ```
+- The full uartlite driver needs `current-speed` **and** an interrupt, so the uart node needs `current-speed = <115200>;` and an `interrupt-parent`/`interrupts` pointing at a PLIC node (`sifive,plic-1.0.0` at `0xc000000`, `interrupts-extended = <&cpu0_intc 11>`). See `device_tree/sample.dts`.
+
+Enable the console drivers in the kernel: `CONFIG_SERIAL_UARTLITE_CONSOLE=y`, `CONFIG_SERIAL_EARLYCON=y`.
+
+### 3. Patch the uartlite driver for poll‑drained TX
+
+chiron has no wired uartlite interrupt, so the IRQ‑driven TX path stalls userspace output after the FIFO fills. Make `ulite_start_tx()` (in `linux/drivers/tty/serial/uartlite.c`) drain the whole ring — safe on real HW too:
+
+```c
+static void ulite_start_tx(struct uart_port *port)
+{
+	while (ulite_transmit(port, uart_in32(ULITE_STATUS, port)))
+		;
+}
+```
+
+### 4. Build vmlinux + bbl + flat image
+
+```
+cd linux && make -j$(nproc) vmlinux            # entry should be 0x80200000
+cd ../riscv-pk && mkdir -p build && cd build
+../configure --prefix=$RISCV --host=riscv64-buildroot-linux-uclibc \
+  --with-arch=rv64ima --with-abi=lp64 --with-mem-start=0x80000000 \
+  --with-payload=../../linux/vmlinux --with-dts=../../device_tree/sample.dts \
+  --enable-print-device-tree --disable-vm --enable-boot-machine
+make                                           # produces bbl + bbl.bin (flat @ 0x80000000)
+```
+
+`bbl.bin` is the bootable single‑core image. Stage it into chiron's `bins/` (e.g. `bins/linux-s1.bin`).
+
+### 5. Quad‑core (SMP) image
+
+```
+cd linux && ./scripts/config --enable CONFIG_SMP --set-val CONFIG_NR_CPUS 4
+make olddefconfig && make -j$(nproc) vmlinux
+```
+
+Use a 4‑CPU device tree (`device_tree/sample_quad.dts`: `cpu@0..cpu@3`, each with its own `cpu-intc`; the CLINT and PLIC `interrupts-extended` list every hart), then rebuild bbl with `--with-dts=../../device_tree/sample_quad.dts`. Stage as `bins/linux-q4.bin`.
+
+### 6. Run on chiron
+
+From the chiron repo root:
+
+```
+make linux-emu       LINUX_IMAGE=bins/linux-s1.bin   # boot on the golden emulator
+make linux-lockstep  LINUX_IMAGE=bins/linux-s1.bin   # bounded RTL-vs-emulator lock-step
+```
+
+(`scripts/run_linux.sh` stages the image into `sim/data/Image`, runs, and reports PASS/mismatch.)
+
+### Known limitations
+
+- **Interactive input** isn't wired in the golden model's UART RX, so the boot reaches `buildroot login:` but you can't type into it.
+- **Quad‑core SMP** boots to userspace but only **CPU 0 comes online** — the golden model's CLINT models a single shared `mtimecmp` and no per‑hart software‑interrupt (MSIP) IPI, so secondaries can't be released. On the RTL it's additionally blocked by the known CCU/L2 multi‑core deadlock.
+
 ## Conclusion
 
 By following these instructions, you will have successfully built a multicore‑supported Linux image for RISC‑V processors. This setup enables you to experiment with a fully functional, emulated many‑core RISC‑V environment or deploy the image on custom hardware. For further details or troubleshooting, consult the repository’s additional documentation and support channels.
