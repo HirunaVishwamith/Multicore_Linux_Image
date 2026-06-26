@@ -32,11 +32,10 @@ Replace <repository_url> with the actual URL of this repository (e.g., `git@gith
 Configure your environment by adding the necessary variables to your `~/.bashrc` file:
 
 ```
-export RISCV=/home/vithurson/buildroot-2022.02.3/output/host
+export RISCV=$PWD/buildroot/output/host     # the buildroot host tree (after building buildroot)
 export PATH=$PATH:$RISCV/bin
-export ARCH=riscv export CROSS_COMPILE=riscv64-buildroot-linux-uclibc-
-
-generic
+export ARCH=riscv
+export CROSS_COMPILE=riscv64-buildroot-linux-uclibc-
 ```
 After updating your `~/.bashrc`, run the configuration script and source the file:
 
@@ -141,7 +140,39 @@ This command boots the multicore‑supported Linux image using the compiled BBL,
 
 chiron is a **no‑MMU, machine‑mode** RISC‑V core: it has a `satp` CSR but performs **no address translation** (no page‑table walk / TLB in either the golden‑model emulator or the RTL). Therefore only a **nommu, M‑mode** kernel can run on it, and its DRAM lives at **`0x80000000`** (the golden model services a 144 MB window `[0x80000000, 0x89000000)`). The generic steps above target a machine with RAM at `0x10000000`; the steps below produce images that boot on chiron. Both the golden emulator and the RTL load a **flat binary at `0x80000000`** — so the deliverable is `bbl.bin` (bbl + nommu‑kernel payload + embedded dtb), `objcopy`‑ed to a raw binary.
 
-The kernel/buildroot/riscv‑pk configs in `configs/` already select `CONFIG_RISCV_M_MODE=y` / `# CONFIG_MMU is not set`. After `./apply_configs_and_patches`, apply these chiron‑specific changes.
+### Quick start (automated)
+
+Once the submodules are cloned and the buildroot toolchain is built, the whole
+pipeline is one script:
+
+```
+./submodule_update                              # clone linux/ buildroot/ riscv-pk/
+cd buildroot && make -j$(nproc) && cd ..        # toolchain + rootfs (slow, once)
+export RISCV=$PWD/buildroot/output/host
+./apply_configs_and_patches                     # stage chiron configs + patches
+./build_image.sh s1                             # -> ../bins/linux-s1.bin  (single-core)
+./build_image.sh q4                             # -> ../bins/linux-q4.bin  (quad SMP, best-effort)
+```
+
+`build_image.sh` runs exactly the manual steps below (kernel `.config` → `vmlinux`
+→ `bbl` → flat `bbl.bin` @ `0x80000000`) and installs the result into the chiron
+repo's `bins/`. The rest of this section explains *why* each knob is set.
+
+> **Gotchas that will cost you an afternoon if you skip them**
+> - **SMP must be OFF for `linux-s1`.** `linux/.config` and the `riscv-pk/build`
+>   tree are shared between the s1 and q4 builds. Building s1 while the tree is
+>   still configured `CONFIG_SMP=y` (e.g. right after a q4 build) yields an SMP
+>   kernel that **boots to userspace then hangs at `getty`** (CPU-pegged, never
+>   prints `buildroot login:`). `build_image.sh s1` forces `--disable SMP`.
+> - **The uartlite console options must be set**, or the kernel boots **silently**
+>   after bbl's device-tree dump. Use `patches/configs/linux/.config` (has
+>   `CONFIG_SERIAL_UARTLITE[_CONSOLE]=y`, `CONFIG_SERIAL_EARLYCON=y`) — **not** the
+>   stale `configs/linux/.config`, which is missing them. `apply_configs_and_patches`
+>   now stages the correct one.
+> - A correct single-core image is **7,541,864 bytes**; an SMP-by-accident image is
+>   ~7.88 MB — a quick sanity check.
+
+The kernel/buildroot/riscv‑pk configs in `patches/configs/` already select `CONFIG_RISCV_M_MODE=y` / `# CONFIG_MMU is not set`. `./apply_configs_and_patches` stages them plus the patches below; the rest of this section is what those changes are.
 
 ### 1. Relocate the kernel to `0x80000000`
 
@@ -166,17 +197,47 @@ Then `cd linux && make olddefconfig` and confirm `CONFIG_PAGE_OFFSET=0x80200000`
 
 Enable the console drivers in the kernel: `CONFIG_SERIAL_UARTLITE_CONSOLE=y`, `CONFIG_SERIAL_EARLYCON=y`.
 
-### 3. Patch the uartlite driver for poll‑drained TX
+### 3. Patch the uartlite driver (TX drain + RX poll)
 
-chiron has no wired uartlite interrupt, so the IRQ‑driven TX path stalls userspace output after the FIFO fills. Make `ulite_start_tx()` (in `linux/drivers/tty/serial/uartlite.c`) drain the whole ring — safe on real HW too:
+chiron has **no wired uartlite interrupt** (no PLIC interrupt *delivery* in either
+the golden model or the RTL), so the driver's IRQ-driven paths never fire. The
+shipped `patches/linux/drivers/tty/serial/uartlite.c` carries both fixes; they're
+applied automatically by `apply_configs_and_patches` (full-file copy):
+
+- **TX drain** — `ulite_start_tx()` drains the whole TX ring instead of sending
+  one byte and waiting for the TX-empty IRQ (otherwise console output stalls
+  after the FIFO fills). Safe on real HW: `ulite_transmit()` returns 0 when the
+  FIFO is full or the ring is empty.
+- **RX poll** (enables **interactive input**) — a `timer_list` armed in
+  `ulite_startup()` polls `ULITE_STATUS` every jiffy and drains RX into the tty
+  layer, since the RX-valid IRQ never fires. Guarded by `#define CHIRON_RX_POLL`.
 
 ```c
-static void ulite_start_tx(struct uart_port *port)
+static void ulite_start_tx(struct uart_port *port)            /* TX drain */
 {
 	while (ulite_transmit(port, uart_in32(ULITE_STATUS, port)))
 		;
 }
+
+#ifdef CHIRON_RX_POLL                                          /* RX poll */
+static void ulite_rx_poll(struct timer_list *t)
+{
+	struct uartlite_data *pdata = from_timer(pdata, t, rx_poll);
+	struct uart_port *port = pdata->port;
+	unsigned long flags; int busy = 0;
+	spin_lock_irqsave(&port->lock, flags);
+	while (ulite_receive(port, uart_in32(ULITE_STATUS, port))) busy = 1;
+	spin_unlock_irqrestore(&port->lock, flags);
+	if (busy) tty_flip_buffer_push(&port->state->port);
+	mod_timer(&pdata->rx_poll, jiffies + 1);
+}
+#endif
 ```
+
+This is what makes `make linux-emu` a usable shell — the golden model's UART RX
+holding register (`hart.uart_rx_byte`) feeds real stdin bytes, and this timer
+pulls them into the tty so `login`, `ls`, `mkdir`, … work. (On the RTL, RX is a
+separate matter — the RTL UART has no stdin-fed RX port; see "Running on chiron".)
 
 ### 4. Build vmlinux + bbl + flat image
 
@@ -206,16 +267,36 @@ Use a 4‑CPU device tree (`device_tree/sample_quad.dts`: `cpu@0..cpu@3`, each w
 From the chiron repo root:
 
 ```
-make linux-emu       LINUX_IMAGE=bins/linux-s1.bin   # boot on the golden emulator
-make linux-lockstep  LINUX_IMAGE=bins/linux-s1.bin   # bounded RTL-vs-emulator lock-step
+make linux-emu        LINUX_IMAGE=bins/linux-s1.bin   # INTERACTIVE shell on the golden model (fast)
+make linux-emu-check  LINUX_IMAGE=bins/linux-s1.bin   # scripted boot-to-login check (CI, non-interactive)
+make linux-sim        LINUX_IMAGE=bins/linux-s1.bin   # boot on the RTL core (live console, very slow)
+make linux-lockstep   LINUX_IMAGE=bins/linux-s1.bin   # bounded RTL-vs-emulator lock-step (debug)
 ```
 
-(`scripts/run_linux.sh` stages the image into `sim/data/Image`, runs, and reports PASS/mismatch.)
+- **`linux-emu`** runs `emu.out` attached to your terminal: it reaches
+  `buildroot login:` in ~60 s, and you can log in as **`root`** (no password) and
+  run `ls`, `mkdir`, etc. — interactive input works (UART RX holding register +
+  the kernel RX-poll patch above).
+- **`linux-sim`** boots the *same* flat image on the Verilated RTL core with the
+  live UART console. It is slow (~thousands of cycles/s; tens of minutes to the
+  kernel banner) — set `LINUX_SIM_HB=1` to print a progress heartbeat. Console
+  output requires the RTL UART TX register at `0x40600004` (the chiron RTL was
+  fixed to match the kernel's `ULITE_TX`); input on the RTL is **not** stdin-fed
+  (the RTL UART has a hardcoded `root\nls..`/`poweroff` auto-login demo instead).
 
-### Known limitations
+### Known limitations / status
 
-- **Interactive input** isn't wired in the golden model's UART RX, so the boot reaches `buildroot login:` but you can't type into it.
-- **Quad‑core SMP** boots to userspace but only **CPU 0 comes online** — the golden model's CLINT models a single shared `mtimecmp` and no per‑hart software‑interrupt (MSIP) IPI, so secondaries can't be released. On the RTL it's additionally blocked by the known CCU/L2 multi‑core deadlock.
+- **Interactive input works on the golden model** (`linux-emu`) — was previously
+  unwired; now fixed via the emulator UART RX holding register and the kernel
+  uartlite RX-poll patch.
+- **Quad‑core SMP** boots to userspace but only **CPU 0 comes online**. Root cause
+  is the CLINT software-interrupt (MSIP/IPI) path: the golden model has *no* MSIP
+  handling and a single shared, wall-clock `mtime`; the RTL CLINT has per-hart
+  `mtimecmp`/`MTIP` and a cycle-driven `mtime`, but its **msip addresses for cores
+  1–3 are wrong** (`0x2004004/8/C` instead of `0x2000004/8/C`, colliding with
+  mtimecmp). So secondaries can't be released. On the RTL, quad-core is also
+  blocked by the known CCU/L2 multi-core deadlock (a spurious front-end redirect
+  to `0x80000000`, *not* a timer/CLINT issue — see chiron `DEADLOCK_DIAGNOSIS.md`).
 
 ## Conclusion
 

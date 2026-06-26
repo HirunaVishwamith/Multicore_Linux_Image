@@ -1,6 +1,27 @@
 #!/bin/bash
+#
+# Stage the chiron kernel/buildroot configs and patched sources into the
+# (submodule) source trees. Run once after ./submodule_update, before building.
+#
+# NOTE: this uses patches/configs/*, which carry the chiron-specific options
+# (nommu M-mode, SMP off, and the uartlite earlycon/console knobs). The old
+# configs/* copies are stale and missing the console options — do not use them.
+set -e
+cd "$(dirname "$0")"
 
-cp ./configs/linux/.config ./linux/.config
-cp ./configs/buildroot/.config ./buildroot/.config
+# 1. Kernel + buildroot .config (chiron: nommu, M-mode, SMP off, uartlite console).
+cp ./patches/configs/linux/.config     ./linux/.config
+cp ./patches/configs/buildroot/.config ./buildroot/.config
+
+# 2. Full patched kernel sources we ship verbatim (uartlite.c = TX-drain + RX-poll
+#    for chiron's IRQ-less UART). Overwrites the matching files under linux/.
 cp -rf ./patches/linux/* ./linux/
+
+# 3. riscv-pk machine-trap shim.
 cp ./patches/riscv-pk/mtrap.c ./riscv-pk/machine/mtrap.c
+
+# 4. Kconfig PAGE_OFFSET relocation 0x10200000 -> 0x80200000 (nommu link base).
+( cd linux && patch -p1 -N -r - < ../patches/chiron/0001-page-offset-0x80000000.patch \
+    || echo "  (0001 page-offset patch already applied — ok)" )
+
+echo "configs + chiron patches staged. Next: ./build_image.sh s1   (or q4)"
