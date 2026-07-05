@@ -17,8 +17,11 @@ cp ./patches/configs/buildroot/.config ./buildroot/.config
 #    for chiron's IRQ-less UART). Overwrites the matching files under linux/.
 cp -rf ./patches/linux/* ./linux/
 
-# 3. riscv-pk machine-trap shim.
+# 3. riscv-pk machine-trap shim, and guard out enter_supervisor_mode() (dead
+#    code under --enable-boot-machine that won't assemble on toolchains
+#    predating the menvcfg CSR name -- see minit.c's own comment).
 cp ./patches/riscv-pk/mtrap.c ./riscv-pk/machine/mtrap.c
+cp ./patches/riscv-pk/minit.c ./riscv-pk/machine/minit.c
 
 # 4. Kconfig PAGE_OFFSET relocation 0x10200000 -> 0x80200000 (nommu link base).
 ( cd linux && patch -p1 -N -r - < ../patches/chiron/0001-page-offset-0x80000000.patch \

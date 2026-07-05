@@ -1,8 +1,19 @@
 Relocate the nommu RISC-V kernel to chiron's RAM base (0x80000000).
 
-CONFIG_PAGE_OFFSET is the nommu RAM/link base; its default 0x10200000 targets a
-machine with RAM at 0x10000000. chiron's DRAM is at 0x80000000, so the kernel
-must be linked at 0x80200000 (RAM base + the bbl's 2 MB head room).
+CONFIG_PAGE_OFFSET is the nommu RAM/link base. bbl (--with-mem-start=0x80000000)
+occupies the first 2 MB of DRAM for itself and places the payload (vmlinux) at
++0x200000; the kernel MUST be linked at 0x80200000 to match, or vmlinux's entry
+point collides with bbl's own base (0x80000000) and every internal absolute
+address in vmlinux is wrong relative to where bbl actually placed those bytes
+-- the hart doesn't crash, it just executes whatever real function happens to
+live at the (wrong) computed address forever, which looks like a silent hang
+with zero console output (observed: all harts looping inside an unrelated
+mm/rhashtable.c function).
+
+This kernel version's own upstream default is 0x80000000 (not the 0x10200000
+some older versions used) -- update the exact default value the patch targets
+if it drifts again; the point is 0x80200000, always headroom-corrected for
+bbl's 2 MB.
 
 Apply from the linux/ source tree:  patch -p1 < this_file
 Then: make olddefconfig  (confirm CONFIG_PAGE_OFFSET=0x80200000)
@@ -12,6 +23,6 @@ Then: make olddefconfig  (confirm CONFIG_PAGE_OFFSET=0x80200000)
 @@ -178,7 +178,7 @@ config PAGE_OFFSET
  	hex
  	default 0xC0000000 if 32BIT
--	default 0x10200000 if 64BIT && !MMU
+-	default 0x80000000 if 64BIT && !MMU
 +	default 0x80200000 if 64BIT && !MMU
  	default 0xff60000000000000 if 64BIT

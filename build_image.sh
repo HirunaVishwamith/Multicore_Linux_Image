@@ -30,7 +30,7 @@ VARIANT="${1:-s1}"
 DEST="${2:-../bins}"
 
 : "${RISCV:?set RISCV to the buildroot host dir, e.g. export RISCV=$ROOT/buildroot/output/host}"
-export PATH="$PATH:$RISCV/bin"
+export PATH="$RISCV/bin:$PATH"
 export ARCH=riscv
 export CROSS_COMPILE=riscv64-buildroot-linux-uclibc-
 command -v "${CROSS_COMPILE}gcc" >/dev/null || { echo "toolchain ${CROSS_COMPILE}gcc not on PATH (is RISCV correct?)"; exit 1; }
@@ -63,12 +63,19 @@ make -j"$(nproc)" vmlinux
 # ── 3. bbl + flat bbl.bin @ 0x80000000 ────────────────────────────────────────
 cd "$ROOT/riscv-pk"
 mkdir -p build && cd build
+# NOTE: no --enable-print-device-tree. bbl's console is the patched Zynq
+# PS-UART putchar (machine/mtrap.c); dumping the whole device tree through it
+# adds hours of wall time on the RTL sim (~8 K cycles/s) before the kernel's
+# first byte, for output that duplicates $DTS.
 ../configure --prefix="$RISCV" --host=riscv64-buildroot-linux-uclibc \
   --with-arch=rv64ima --with-abi=lp64 --with-mem-start=0x80000000 \
   --with-payload=../../linux/vmlinux --with-dts="../../$DTS" \
-  --enable-print-device-tree --disable-vm --enable-boot-machine
+  --disable-vm --enable-boot-machine
 make clean >/dev/null 2>&1 || true
-make -j"$(nproc)"
+# Target bbl.bin specifically, not the default (all) target: riscv-pk's other
+# default binary, pk (the proxy kernel), uses senvcfg -- unassembleable on
+# toolchains predating that CSR name -- and chiron only ever uses bbl.bin.
+make -j"$(nproc)" bbl.bin
 
 # ── 4. install the flat image into chiron's bins/ ─────────────────────────────
 mkdir -p "$ROOT/$DEST"

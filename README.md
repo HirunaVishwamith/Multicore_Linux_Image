@@ -151,7 +151,7 @@ cd buildroot && make -j$(nproc) && cd ..        # toolchain + rootfs (slow, once
 export RISCV=$PWD/buildroot/output/host
 ./apply_configs_and_patches                     # stage chiron configs + patches
 ./build_image.sh s1                             # -> ../bins/linux-s1.bin  (single-core)
-./build_image.sh q4                             # -> ../bins/linux-q4.bin  (quad SMP, best-effort)
+./build_image.sh q4                             # -> ../bins/linux-q4.bin  (quad-core SMP)
 ```
 
 `build_image.sh` runs exactly the manual steps below (kernel `.config` → `vmlinux`
@@ -284,19 +284,25 @@ make linux-lockstep   LINUX_IMAGE=bins/linux-s1.bin   # bounded RTL-vs-emulator 
   fixed to match the kernel's `ULITE_TX`); input on the RTL is **not** stdin-fed
   (the RTL UART has a hardcoded `root\nls..`/`poweroff` auto-login demo instead).
 
-### Known limitations / status
+### Known limitations / status (2026-07-03)
 
 - **Interactive input works on the golden model** (`linux-emu`) — was previously
   unwired; now fixed via the emulator UART RX holding register and the kernel
   uartlite RX-poll patch.
-- **Quad‑core SMP** boots to userspace but only **CPU 0 comes online**. Root cause
-  is the CLINT software-interrupt (MSIP/IPI) path: the golden model has *no* MSIP
-  handling and a single shared, wall-clock `mtime`; the RTL CLINT has per-hart
-  `mtimecmp`/`MTIP` and a cycle-driven `mtime`, but its **msip addresses for cores
-  1–3 are wrong** (`0x2004004/8/C` instead of `0x2000004/8/C`, colliding with
-  mtimecmp). So secondaries can't be released. On the RTL, quad-core is also
-  blocked by the known CCU/L2 multi-core deadlock (a spurious front-end redirect
-  to `0x80000000`, *not* a timer/CLINT issue — see chiron `DEADLOCK_DIAGNOSIS.md`).
+- **Quad-core SMP works.** The CLINT issues that used to keep secondaries
+  offline are fixed on both back-ends: the golden model now has a proper
+  per-hart CLINT (msip + mtimecmp, `sim/emulator/clint.h`) and the RTL's
+  msip addresses for cores 1–3 were corrected (`0x2000004/8/C`; they previously
+  collided with mtimecmp).
+- **Quad-core boots on the RTL** (`make linux-sim LINUX_IMAGE=bins/linux-q4.bin`).
+  The two multi-core RTL bugs that used to wedge the boot were root-caused and
+  fixed in the chiron repo (a CCU/L2 snoop-starvation deadlock during bbl's
+  fence, and a ROB full/empty livelock on coherent-load squash — see the
+  "Booting Linux" section of chiron's README). Expect the kernel banner after
+  ~20 min of Verilator time; full boot to userspace takes days at RTL speed —
+  use `linux-emu` for interactive work and `linux-sim` for RTL validation.
+- The `qemu.dtb`/`boot.bin` arguments the RTL harness takes are vestigial —
+  bbl embeds the device tree, so the image alone determines the configuration.
 
 ## Conclusion
 
