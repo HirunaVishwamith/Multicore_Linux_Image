@@ -13,8 +13,13 @@ cd "$(dirname "$0")"
 cp ./patches/configs/linux/.config     ./linux/.config
 cp ./patches/configs/buildroot/.config ./buildroot/.config
 
-# 2. Full patched kernel sources we ship verbatim (uartlite.c = TX-drain + RX-poll
-#    for chiron's IRQ-less UART). Overwrites the matching files under linux/.
+# 2. Full patched kernel sources we ship verbatim. Overwrites the matching
+#    files under linux/:
+#      arch/riscv/Kconfig               - PAGE_OFFSET 0x80200000 (nommu link
+#                                          base = chiron's RAM + bbl's 2 MB head
+#                                          room; see the file's own comment)
+#      drivers/tty/serial/uartlite.c    - TX-drain + RX-poll for chiron's
+#                                          IRQ-less UART
 cp -rf ./patches/linux/* ./linux/
 
 # 3. riscv-pk machine-trap shim, and guard out enter_supervisor_mode() (dead
@@ -22,9 +27,5 @@ cp -rf ./patches/linux/* ./linux/
 #    predating the menvcfg CSR name -- see minit.c's own comment).
 cp ./patches/riscv-pk/mtrap.c ./riscv-pk/machine/mtrap.c
 cp ./patches/riscv-pk/minit.c ./riscv-pk/machine/minit.c
-
-# 4. Kconfig PAGE_OFFSET relocation 0x10200000 -> 0x80200000 (nommu link base).
-( cd linux && patch -p1 -N -r - < ../patches/chiron/0001-page-offset-0x80000000.patch \
-    || echo "  (0001 page-offset patch already applied — ok)" )
 
 echo "configs + chiron patches staged. Next: ./build_image.sh s1   (or q4)"

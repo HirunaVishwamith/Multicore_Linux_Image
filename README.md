@@ -176,15 +176,15 @@ The kernel/buildroot/riscv‑pk configs in `patches/configs/` already select `CO
 
 ### 1. Relocate the kernel to `0x80000000`
 
-`CONFIG_PAGE_OFFSET` (the nommu RAM/link base) defaults to `0x10200000`. Point it at chiron's RAM by editing `linux/arch/riscv/Kconfig`:
+`CONFIG_PAGE_OFFSET` (the nommu RAM/link base) must point at chiron's RAM, headroom-corrected for bbl's 2 MB payload offset (`0x80200000`, not the upstream default). The shipped `patches/linux/arch/riscv/Kconfig` carries this; it's applied automatically by `apply_configs_and_patches` (full-file copy, same mechanism as the uartlite patch below):
 
 ```
 config PAGE_OFFSET
 	hex
-	default 0x80200000 if 64BIT && !MMU   # was 0x10200000
+	default 0x80200000 if 64BIT && !MMU   # chiron: RAM base 0x80000000 + bbl's 2 MB head room
 ```
 
-Then `cd linux && make olddefconfig` and confirm `CONFIG_PAGE_OFFSET=0x80200000`.
+After patching, `cd linux && make olddefconfig` confirms `CONFIG_PAGE_OFFSET=0x80200000`. If this value and bbl's actual load layout ever disagree, the symptom is a silent hang with zero console output (every hart looping forever inside some unrelated kernel function) rather than a crash.
 
 ### 2. Device tree (`device_tree/sample.dts`, single‑core)
 
